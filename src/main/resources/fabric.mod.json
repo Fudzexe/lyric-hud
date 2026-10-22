@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "lyricshud",
+  "version": "${version}",
+  "name": "Lyrics HUD",
+  "description": "Shows synced lyrics for whatever song your PC is playing. Draggable, colour-customisable, no Spotify login needed.",
+  "authors": ["you"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.lyricshud.LyricsHudClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
