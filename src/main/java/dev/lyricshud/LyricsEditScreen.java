@@ -144,7 +144,7 @@ public class LyricsEditScreen extends Screen {
 		MediaState.Snapshot snap = state.snapshot();
 		if (!snap.hasMedia()) snap = LyricsRenderer.preview();
 		box = LyricsRenderer.draw(ctx, cfg, snap, width, height);
-		ctx.drawBorder(box.x() - 2, box.y() - 2, box.w() + 4, box.h() + 4, dragging ? 0xFFFFFFFF : 0x88FFFFFF);
+		outline(ctx, box.x() - 2, box.y() - 2, box.w() + 4, box.h() + 4, dragging ? 0xFFFFFFFF : 0x88FFFFFF);
 	}
 
 	@Override
@@ -185,9 +185,14 @@ public class LyricsEditScreen extends Screen {
 	private void swatch(DrawContext ctx, TextFieldWidget f, int rgb) {
 		int x2 = f.getX() + f.getWidth() - 4;
 		ctx.fill(x2 - 12, f.getY() + 4, x2, f.getY() + 16, 0xFF000000 | rgb);
-		ctx.drawBorder(x2 - 12, f.getY() + 4, 12, 12, 0xFFFFFFFF);
+		outline(ctx, x2 - 12, f.getY() + 4, 12, 12, 0xFFFFFFFF);
 	}
-
+	private static void outline(DrawContext c, int x, int y, int w, int h, int color) {
+		c.fill(x, y, x + w, y + 1, color);
+		c.fill(x, y + h - 1, x + w, y + h, color);
+		c.fill(x, y + 1, x + 1, y + h - 1, color);
+		c.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
+	}
 	private boolean overWidget(double mx, double my) {
 		for (Element e : children()) {
 			if (e.isMouseOver(mx, my)) return true;
