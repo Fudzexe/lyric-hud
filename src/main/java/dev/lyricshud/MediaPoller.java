@@ -35,11 +35,15 @@ public final class MediaPoller {
 		$mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 		[void][Windows.Storage.Streams.RandomAccessStreamReference, Windows.Storage.Streams, ContentType=WindowsRuntime]
 		[void][Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType=WindowsRuntime]
+		$runId = [guid]::NewGuid().ToString('N').Substring(0, 6)
+		$md5 = [System.Security.Cryptography.MD5]::Create()
 		$lastKey = ''
 		$artToken = ''
 		$artGen = 0
 		$artDone = $true
 		$artTries = 0
+		$artErr = ''
+		$prevHash = ''
 		while ($true) {
 		  $line = 'NONE'
 		  try {
@@ -58,23 +62,48 @@ public final class MediaPoller {
 		      $title = "$($p.Title)".Replace('|', ' ')
 		      $artist = "$($p.Artist)".Replace('|', ' ')
 		      $key = "$title|$artist"
-		      if ($key -ne $lastKey) { $lastKey = $key; $artToken = ''; $artDone = $false; $artTries = 0 }
-		      if (-not $artDone -and $artTries -lt 16) {
-		        $artTries++
-		        try {
-		          $ref = $p.Thumbnail
-		          if ($ref) {
-		            $st = Await ($ref.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-		            $net = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
-		            $fs = [System.IO.File]::Create($ArtPath)
-		            $net.CopyTo($fs)
-		            $fs.Close()
-		            $net.Close()
-		            if ((Get-Item $ArtPath).Length -gt 0) { $artGen++; $artToken = "$artGen"; $artDone = $true }
+		      if ($key -ne $lastKey) { $lastKey = $key; $artDone = $false; $artTries = 0; $artErr = '' }
+		      if (-not $artDone) {
+		        if ($artTries -ge 60) {
+		          $artDone = $true
+		          $artToken = ''
+		          if (-not $artErr) { $artErr = 'gave up waiting for a cover' }
+		        } else {
+		          $artTries++
+		          $net = $null
+		          try {
+		            $ref = $p.Thumbnail
+		            if (-not $ref) { $artErr = 'player has not provided a cover (yet)' }
+		            else {
+		              $st = Await ($ref.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+		              $net = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
+		              $ms = New-Object System.IO.MemoryStream
+		              $net.CopyTo($ms)
+		              $bytes = $ms.ToArray()
+		              if ($bytes.Length -eq 0) { $artErr = 'cover stream was empty' }
+		              else {
+		                $hash = [System.BitConverter]::ToString($md5.ComputeHash($bytes))
+		                if ($hash -eq $prevHash -and $artTries -lt 12) { $artErr = 'cover still matches the previous song, waiting' }
+		                else {
+		                  $tmp = $ArtPath + '.tmp'
+		                  [System.IO.File]::WriteAllBytes($tmp, $bytes)
+		                  Move-Item -LiteralPath $tmp -Destination $ArtPath -Force
+		                  $prevHash = $hash
+		                  $artGen++
+		                  $artToken = "$runId-$artGen"
+		                  $artDone = $true
+		                  $artErr = ''
+		                }
+		              }
+		            }
+		          } catch {
+		            $artErr = ("$($_.Exception.Message)").Replace('|', ' ').Replace([string][char]13, ' ').Replace([string][char]10, ' ')
+		          } finally {
+		            if ($net) { $net.Close() }
 		          }
-		        } catch { }
+		        }
 		      }
-		      $line = "$status|||$([int64]($pos * 1000))|||$([int64]($dur * 1000))|||$title|||$artist|||$artToken"
+		      $line = "$status|||$([int64]($pos * 1000))|||$([int64]($dur * 1000))|||$title|||$artist|||$artToken|||$artErr"
 		    }
 		  } catch { $line = 'NONE' }
 		  [Console]::Out.WriteLine($line)
@@ -86,6 +115,7 @@ public final class MediaPoller {
 	private final MediaState state;
 	private final LyricsConfig config;
 	private volatile Process process;
+	private String lastArtMsg = "";
 
 	public MediaPoller(MediaState state, LyricsConfig config) {
 		this.state = state;
@@ -166,6 +196,13 @@ public final class MediaPoller {
 				return;
 			}
 			if (f.length >= 6) state.setArtToken(f[5].trim());
+			if (f.length >= 7) {
+				String msg = f[6].trim();
+				if (!msg.equals(lastArtMsg)) {
+					lastArtMsg = msg;
+					if (!msg.isEmpty()) LyricsHudClient.LOGGER.info("Album art helper: {}", msg);
+				}
+			}
 			state.update(playing, posMs, durMs, title, artist);
 		} catch (NumberFormatException ignored) {
 		}
