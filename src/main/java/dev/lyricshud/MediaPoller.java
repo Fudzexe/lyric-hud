@@ -62,7 +62,7 @@ public final class MediaPoller {
 		      $title = "$($p.Title)".Replace('|', ' ')
 		      $artist = "$($p.Artist)".Replace('|', ' ')
 		      $key = "$title|$artist"
-		      if ($key -ne $lastKey) { $lastKey = $key; $artDone = $false; $artTries = 0; $artErr = '' }
+		      if ($key -ne $lastKey) { $lastKey = $key; $artDone = $false; $artTries = 0; $artErr = ''; $artToken = '' }
 		      if (-not $artDone) {
 		        if ($artTries -ge 60) {
 		          $artDone = $true
