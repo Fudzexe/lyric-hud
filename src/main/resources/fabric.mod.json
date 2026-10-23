@@ -6,6 +6,7 @@
   "description": "Shows synced lyrics for whatever song your PC is playing. Draggable, colour-customisable, no Spotify login needed.",
   "authors": ["you"],
   "license": "MIT",
+  "icon": "icon.png",
   "environment": "client",
   "entrypoints": {
     "client": ["dev.lyricshud.LyricsHudClient"]
