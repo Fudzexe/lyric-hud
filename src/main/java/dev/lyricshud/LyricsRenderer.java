@@ -49,7 +49,7 @@ public final class LyricsRenderer {
 	/** Returns the on-screen box that was drawn (in GUI pixels). */
 	public static Box draw(DrawContext ctx, LyricsConfig cfg, MediaState.Snapshot s, int screenW, int screenH) {
 		TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-		ArtManager.tick(s.artToken());
+		ArtManager.tick(s.artToken(), s.title(), s.artist());
 
 		int w = cfg.width;
 		int innerW = Math.max(40, w - PAD * 2);
