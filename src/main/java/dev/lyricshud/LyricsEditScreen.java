@@ -53,7 +53,7 @@ public class LyricsEditScreen extends Screen {
 		int colW = Math.min(150, (width - 16 - gap * 2) / 3);
 		int totalW = colW * 3 + gap * 2;
 		int left = (width - totalW) / 2;
-		int top = height - (24 * 4) - 2;
+		int top = height - (24 * 5) - 2;
 
 		// row 0: colours
 		activeField = colourField(left, top, colW, "Active line #RRGGBB", cfg.activeColor, true);
@@ -99,6 +99,10 @@ public class LyricsEditScreen extends Screen {
 			.dimensions(tx + half + gap, r3, half, 20)
 			.tooltip(Tooltip.of(Text.literal("Lyrics appear 50ms later")))
 			.build());
+
+		// row 4: scroll speed for long titles
+		int r4 = top + 96;
+		addDrawableChild(new Slider(left, r4, totalW, "Long title scroll speed", 0, 20, cfg.scrollSpeed, v -> cfg.scrollSpeed = (int) Math.round(v), v -> Math.round(v) == 0 ? "OFF" : Math.round(v) + " chars/sec"));
 
 		// top bar
 		addDrawableChild(toggle(4, 4, 100, "HUD", () -> cfg.enabled, v -> cfg.enabled = v));
@@ -187,12 +191,14 @@ public class LyricsEditScreen extends Screen {
 		ctx.fill(x2 - 12, f.getY() + 4, x2, f.getY() + 16, 0xFF000000 | rgb);
 		outline(ctx, x2 - 12, f.getY() + 4, 12, 12, 0xFFFFFFFF);
 	}
+
 	private static void outline(DrawContext c, int x, int y, int w, int h, int color) {
 		c.fill(x, y, x + w, y + 1, color);
 		c.fill(x, y + h - 1, x + w, y + h, color);
 		c.fill(x, y + 1, x + 1, y + h - 1, color);
 		c.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
 	}
+
 	private boolean overWidget(double mx, double my) {
 		for (Element e : children()) {
 			if (e.isMouseOver(mx, my)) return true;

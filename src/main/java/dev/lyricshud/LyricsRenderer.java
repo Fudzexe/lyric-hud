@@ -54,10 +54,10 @@ public final class LyricsRenderer {
 		if (cfg.showHeader) {
 			rows.add(new Row(Text.literal(s.playing() ? "NOW PLAYING" : "PAUSED").asOrderedText(), argb(1f, DIM_TEXT), y));
 			y += LINE_H + 2;
-			rows.add(new Row(Text.literal(marquee(tr, s.title(), innerW, true)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), y));
+			rows.add(new Row(Text.literal(marquee(tr, s.title(), innerW, true, cfg.scrollSpeed)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), y));
 			y += LINE_H + 1;
 			if (!s.artist().isEmpty()) {
-				rows.add(new Row(Text.literal(marquee(tr, s.artist(), innerW, false)).asOrderedText(), argb(1f, DIM_TEXT), y));
+				rows.add(new Row(Text.literal(marquee(tr, s.artist(), innerW, false, cfg.scrollSpeed)).asOrderedText(), argb(1f, DIM_TEXT), y));
 				y += LINE_H + 1;
 			}
 			barY = y + 2;
@@ -133,21 +133,21 @@ public final class LyricsRenderer {
 	}
 
 	// ---- scrolling text for names that are too long ----
-	private static final long SCROLL_STEP_MS = 140;   // one character per step
-	private static final long SCROLL_PAUSE_MS = 1800; // rest at the start of each loop
+		private static final long SCROLL_PAUSE_MS = 1800; // rest at the start of each loop
 
 	private static int textWidth(TextRenderer tr, String s, boolean bold) {
 		return bold ? tr.getWidth(Text.literal(s).formatted(Formatting.BOLD)) : tr.getWidth(s);
 	}
 
 	/** Returns the text unchanged if it fits, otherwise a window of it that slides along over time. */
-	private static String marquee(TextRenderer tr, String text, int maxW, boolean bold) {
+	private static String marquee(TextRenderer tr, String text, int maxW, boolean bold, int charsPerSec) {
 		if (textWidth(tr, text, bold) <= maxW) return text;
+		long stepMs = charsPerSec <= 0 ? 0 : Math.max(20, 1000L / charsPerSec);
 
 		String loop = text + "   -   ";
-		long cycleMs = loop.length() * SCROLL_STEP_MS;
+		long cycleMs = loop.length() * Math.max(1, stepMs);
 		long m = System.currentTimeMillis() % (cycleMs + SCROLL_PAUSE_MS);
-		int start = m < SCROLL_PAUSE_MS ? 0 : (int) ((m - SCROLL_PAUSE_MS) / SCROLL_STEP_MS) % loop.length();
+		int start = (stepMs == 0 || m < SCROLL_PAUSE_MS) ? 0 : (int) ((m - SCROLL_PAUSE_MS) / stepMs) % loop.length();
 		if (start > 0 && Character.isLowSurrogate(loop.charAt(start))) start++;
 
 		String src = (loop + loop).substring(start);

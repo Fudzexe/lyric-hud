@@ -34,6 +34,9 @@ public class LyricsConfig {
 	public int linesBefore = 0;
 	public int linesAfter = 2;
 
+	/** Long title/artist scrolling, in characters per second. 0 = don't scroll. */
+	public int scrollSpeed = 7;
+
 	/** Nudge lyric timing, in ms. Positive = lyrics appear earlier. */
 	public int offsetMs = 0;
 
