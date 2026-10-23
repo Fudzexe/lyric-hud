@@ -2,10 +2,12 @@ package dev.lyricshud;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.OrderedText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,11 +20,15 @@ public final class LyricsRenderer {
 		}
 	}
 
-	private record Row(OrderedText text, int argb, int y) {}
+	private record Row(OrderedText text, int argb, int x, int y) {}
+
+	/** One wrapped piece of the active line, drawn letter by letter so it can ripple. */
+	private record WaveRow(String text, int y, int charStart) {}
 
 	private static final int PAD = 6;
 	private static final int LINE_H = 9;
 	private static final int GAP = 3;
+	private static final double WAVE_SIGMA = 3.0; // how many letters wide the wave is
 
 	private static final int DIM_TEXT = 0x8A8A94;
 
@@ -37,34 +43,59 @@ public final class LyricsRenderer {
 			new MediaState.Line(12000, "Drag me anywhere you like"),
 			new MediaState.Line(16000, "Change my colours below"));
 		long pos = System.currentTimeMillis() % 20000L;
-		return new MediaState.Snapshot(true, true, "Preview Song", "Lyrics HUD", pos, 20000, lines, MediaState.LyricsStatus.READY);
+		return new MediaState.Snapshot(true, true, "Preview Song", "Lyrics HUD", pos, 20000, lines, MediaState.LyricsStatus.READY, "preview");
 	}
 
 	/** Returns the on-screen box that was drawn (in GUI pixels). */
 	public static Box draw(DrawContext ctx, LyricsConfig cfg, MediaState.Snapshot s, int screenW, int screenH) {
 		TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-		int innerW = Math.max(40, cfg.width - PAD * 2);
+		ArtManager.tick(s.artToken());
+
+		int w = cfg.width;
+		int innerW = Math.max(40, w - PAD * 2);
 		int activeRgb = cfg.activeRgb();
 		int upcomingRgb = cfg.upcomingRgb();
 
 		List<Row> rows = new ArrayList<>();
+		List<WaveRow> waveRows = new ArrayList<>();
 		int y = PAD;
 		int barY = -1;
 
+		// ---- album art placement ----
+		boolean art = cfg.showHeader && cfg.showArt && !s.artToken().isEmpty();
+		int artSize = cfg.artSize;
+		int artX = PAD;
+		int textX = PAD;
+		int textW = innerW;
+		if (art) {
+			textW = Math.max(30, innerW - artSize - 6);
+			if (cfg.artRight) artX = w - PAD - artSize;
+			else textX = PAD + artSize + 6;
+		}
+
+		// ---- header ----
 		if (cfg.showHeader) {
-			rows.add(new Row(Text.literal(s.playing() ? "NOW PLAYING" : "PAUSED").asOrderedText(), argb(1f, DIM_TEXT), y));
-			y += LINE_H + 2;
-			rows.add(new Row(Text.literal(marquee(tr, s.title(), innerW, true, cfg.scrollSpeed)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), y));
-			y += LINE_H + 1;
-			if (!s.artist().isEmpty()) {
-				rows.add(new Row(Text.literal(marquee(tr, s.artist(), innerW, false, cfg.scrollSpeed)).asOrderedText(), argb(1f, DIM_TEXT), y));
-				y += LINE_H + 1;
+			boolean hasArtist = !s.artist().isEmpty();
+			int textBlockH = (LINE_H + 2) + (LINE_H + 1) + (hasArtist ? LINE_H + 1 : 0);
+			int ty = PAD;
+			if (art && artSize > textBlockH) ty = PAD + (artSize - textBlockH) / 2;
+
+			rows.add(new Row(Text.literal(s.playing() ? "NOW PLAYING" : "PAUSED").asOrderedText(), argb(1f, DIM_TEXT), textX, ty));
+			ty += LINE_H + 2;
+			rows.add(new Row(Text.literal(marquee(tr, s.title(), textW, true, cfg.scrollSpeed)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), textX, ty));
+			ty += LINE_H + 1;
+			if (hasArtist) {
+				rows.add(new Row(Text.literal(marquee(tr, s.artist(), textW, false, cfg.scrollSpeed)).asOrderedText(), argb(1f, DIM_TEXT), textX, ty));
 			}
-			barY = y + 2;
-			y += 2 + 2 + 6;
+
+			int headerEnd = Math.max(PAD + textBlockH, art ? PAD + artSize : 0);
+			barY = headerEnd + 2;
+			y = headerEnd + 2 + 2 + 6;
 		}
 
 		// ---- lyric lines ----
+		double waveProgress = 0;
+		int waveTotal = 0;
 		switch (s.lyricsStatus()) {
 			case LOADING -> y = addWrapped(rows, tr, "Loading lyrics...", innerW, y, argb(1f, DIM_TEXT), false);
 			case NOT_FOUND -> y = addWrapped(rows, tr, "No synced lyrics found", innerW, y, argb(1f, DIM_TEXT), false);
@@ -81,17 +112,25 @@ public final class LyricsRenderer {
 				for (int i = from; i <= to; i++) {
 					int dist = i - idx;
 					String text = lines.get(i).text().isEmpty() ? "♪" : lines.get(i).text();
-					int color;
-					if (dist == 0) color = argb(1f, activeRgb);
-					else color = argb(fade(dist), upcomingRgb);
-					y = addWrapped(rows, tr, text, innerW, y, color, dist == 0);
+					if (dist == 0 && cfg.waveEnabled && cfg.waveStrength > 0) {
+						// how far through the line we are, so the wave can follow the singing
+						waveTotal = text.codePointCount(0, text.length());
+						MediaState.Line cur = lines.get(i);
+						long next = i + 1 < lines.size() ? lines.get(i + 1).timeMs() : cur.timeMs() + 4000L;
+						long dur = Math.min(Math.max(1L, next - cur.timeMs()), Math.max(1500L, waveTotal * 130L));
+						waveProgress = Math.max(0.0, Math.min(1.0, (pos - cur.timeMs()) / (double) dur));
+						y = addWaveLines(waveRows, tr, text, innerW, y);
+					} else {
+						int color = dist == 0 ? argb(1f, activeRgb) : argb(fade(dist), upcomingRgb);
+						y = addWrapped(rows, tr, text, innerW, y, color, dist == 0);
+					}
 				}
 			}
 		}
 
 		int h = y - GAP + PAD;
 		float scale = cfg.scale;
-		int bw = Math.round(cfg.width * scale);
+		int bw = Math.round(w * scale);
 		int bh = Math.round(h * scale);
 		int x0 = clamp(Math.round(cfg.x * screenW), 0, Math.max(0, screenW - bw));
 		int y0 = clamp(Math.round(cfg.y * screenH), 0, Math.max(0, screenH - bh));
@@ -100,15 +139,38 @@ public final class LyricsRenderer {
 		ctx.getMatrices().translate(x0, y0);
 		ctx.getMatrices().scale(scale, scale);
 
-		int w = cfg.width;
 		if (cfg.background) {
 			int bg = ((cfg.backgroundOpacity * 255 / 100) << 24) | 0x12121A;
 			ctx.fill(1, 0, w - 1, h, bg); // cheap rounded corners
 			ctx.fill(0, 1, w, h - 1, bg);
 		}
 
+		if (art) drawArt(ctx, tr, artX, PAD, artSize);
+
 		for (Row r : rows) {
-			ctx.drawText(tr, r.text(), PAD, r.y(), r.argb(), cfg.shadow);
+			ctx.drawText(tr, r.text(), r.x(), r.y(), r.argb(), cfg.shadow);
+		}
+
+		// ---- the wave: a ripple that travels across the active line as it's sung ----
+		if (!waveRows.isEmpty()) {
+			double center = -2 * WAVE_SIGMA + waveProgress * (waveTotal + 4 * WAVE_SIGMA);
+			for (WaveRow wr : waveRows) {
+				int cx = PAD;
+				int index = wr.charStart();
+				String str = wr.text();
+				for (int off = 0; off < str.length(); ) {
+					int cp = str.codePointAt(off);
+					off += Character.charCount(cp);
+					Text glyph = Text.literal(new String(Character.toChars(cp))).formatted(Formatting.BOLD);
+					double d = index - center;
+					double env = Math.exp(-(d * d) / (2 * WAVE_SIGMA * WAVE_SIGMA));
+					int dy = (int) Math.round(-cfg.waveStrength * env * Math.cos(d * 0.9));
+					int color = lerpRgb(activeRgb, 0xFFFFFF, (float) (env * 0.45));
+					ctx.drawText(tr, glyph.asOrderedText(), cx, wr.y() + dy, argb(1f, color), cfg.shadow);
+					cx += tr.getWidth(glyph);
+					index++;
+				}
+			}
 		}
 
 		if (barY >= 0) {
@@ -123,17 +185,74 @@ public final class LyricsRenderer {
 		return new Box(x0, y0, bw, bh);
 	}
 
+	private static void drawArt(DrawContext ctx, TextRenderer tr, int x, int y, int size) {
+		ctx.fill(x - 1, y - 1, x + size + 1, y + size + 1, 0xAA000000); // thin dark frame
+		Identifier id = ArtManager.textureId();
+		if (id != null) {
+			int tw = ArtManager.width();
+			int th = ArtManager.height();
+			ctx.drawTexture(RenderPipelines.GUI_TEXTURED, id, x, y, 0f, 0f, size, size, tw, th, tw, th);
+		} else {
+			ctx.fill(x, y, x + size, y + size, 0xFF2A2A33);
+			String note = "♪";
+			ctx.drawText(tr, note, x + (size - tr.getWidth(note)) / 2, y + (size - LINE_H) / 2, 0xFF8A8A94, false);
+		}
+	}
+
 	private static int addWrapped(List<Row> rows, TextRenderer tr, String text, int width, int y, int argb, boolean bold) {
 		Text t = bold ? Text.literal(text).formatted(Formatting.BOLD) : Text.literal(text);
 		for (OrderedText ot : tr.wrapLines(t, width)) {
-			rows.add(new Row(ot, argb, y));
+			rows.add(new Row(ot, argb, PAD, y));
 			y += LINE_H;
 		}
 		return y + GAP;
 	}
 
+	private static int addWaveLines(List<WaveRow> out, TextRenderer tr, String text, int width, int y) {
+		int start = 0;
+		for (String piece : wrapPlain(tr, text, width, true)) {
+			out.add(new WaveRow(piece, y, start));
+			start += piece.codePointCount(0, piece.length());
+			y += LINE_H;
+		}
+		return y + GAP;
+	}
+
+	/** Simple word wrap on plain strings (the wave needs the actual text of each line). */
+	private static List<String> wrapPlain(TextRenderer tr, String text, int width, boolean bold) {
+		List<String> out = new ArrayList<>();
+		StringBuilder cur = new StringBuilder();
+		for (String word : text.split(" ")) {
+			String candidate = cur.length() == 0 ? word : cur + " " + word;
+			if (textWidth(tr, candidate, bold) <= width) {
+				cur = new StringBuilder(candidate);
+				continue;
+			}
+			if (cur.length() > 0) {
+				out.add(cur.toString());
+				cur = new StringBuilder();
+			}
+			if (textWidth(tr, word, bold) <= width) {
+				cur.append(word);
+				continue;
+			}
+			// single word wider than the box: break it up
+			for (int cp : word.codePoints().toArray()) {
+				String ch = new String(Character.toChars(cp));
+				if (cur.length() > 0 && textWidth(tr, cur + ch, bold) > width) {
+					out.add(cur.toString());
+					cur = new StringBuilder();
+				}
+				cur.append(ch);
+			}
+		}
+		if (cur.length() > 0) out.add(cur.toString());
+		if (out.isEmpty()) out.add("");
+		return out;
+	}
+
 	// ---- scrolling text for names that are too long ----
-		private static final long SCROLL_PAUSE_MS = 1800; // rest at the start of each loop
+	private static final long SCROLL_PAUSE_MS = 1800; // rest at the start of each loop
 
 	private static int textWidth(TextRenderer tr, String s, boolean bold) {
 		return bold ? tr.getWidth(Text.literal(s).formatted(Formatting.BOLD)) : tr.getWidth(s);
@@ -169,6 +288,15 @@ public final class LyricsRenderer {
 			case 2 -> 0.55f;
 			default -> 0.35f;
 		};
+	}
+
+	private static int lerpRgb(int a, int b, float t) {
+		int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+		int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+		int r = Math.round(ar + (br - ar) * t);
+		int g = Math.round(ag + (bg - ag) * t);
+		int bl = Math.round(ab + (bb - ab) * t);
+		return (r << 16) | (g << 8) | bl;
 	}
 
 	private static int argb(float alpha, int rgb) {

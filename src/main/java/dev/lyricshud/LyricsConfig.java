@@ -37,6 +37,17 @@ public class LyricsConfig {
 	/** Long title/artist scrolling, in characters per second. 0 = don't scroll. */
 	public int scrollSpeed = 7;
 
+	/** Album cover next to the song title. */
+	public boolean showArt = true;
+	public boolean artRight = false;
+	/** Cover size in GUI pixels (before scale). */
+	public int artSize = 40;
+
+	/** Ripple that sweeps across the current lyric line as it's sung. */
+	public boolean waveEnabled = true;
+	/** Wave height in pixels. 0 = off. */
+	public int waveStrength = 2;
+
 	/** Nudge lyric timing, in ms. Positive = lyrics appear earlier. */
 	public int offsetMs = 0;
 

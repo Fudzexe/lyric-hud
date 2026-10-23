@@ -11,7 +11,7 @@ public final class MediaState {
 	public enum LyricsStatus { LOADING, READY, NOT_FOUND }
 
 	public record Snapshot(boolean hasMedia, boolean playing, String title, String artist,
-						   long posMs, long durMs, List<Line> lines, LyricsStatus lyricsStatus) {}
+						   long posMs, long durMs, List<Line> lines, LyricsStatus lyricsStatus, String artToken) {}
 
 	private static final long STALE_NANOS = 3_000_000_000L;
 
@@ -33,6 +33,12 @@ public final class MediaState {
 	private String trackKey = "";
 	private List<Line> lines = List.of();
 	private LyricsStatus lyricsStatus = LyricsStatus.LOADING;
+	private String artToken = "";
+
+	/** Changes whenever the album cover for the current song changes ("" = no cover). */
+	public synchronized void setArtToken(String token) {
+		this.artToken = token == null ? "" : token;
+	}
 
 	public synchronized void clear() {
 		hasMedia = false;
@@ -78,6 +84,6 @@ public final class MediaState {
 		long pos = basePosMs;
 		if (playing) pos += (now - baseNanos) / 1_000_000L;
 		if (durMs > 0 && pos > durMs) pos = durMs;
-		return new Snapshot(live, playing, title, artist, pos, durMs, lines, lyricsStatus);
+		return new Snapshot(live, playing, title, artist, pos, durMs, lines, lyricsStatus, artToken);
 	}
 }

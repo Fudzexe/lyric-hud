@@ -53,7 +53,7 @@ public class LyricsEditScreen extends Screen {
 		int colW = Math.min(150, (width - 16 - gap * 2) / 3);
 		int totalW = colW * 3 + gap * 2;
 		int left = (width - totalW) / 2;
-		int top = height - (24 * 5) - 2;
+		int top = height - (24 * 6) - 2;
 
 		// row 0: colours
 		activeField = colourField(left, top, colW, "Active line #RRGGBB", cfg.activeColor, true);
@@ -100,9 +100,20 @@ public class LyricsEditScreen extends Screen {
 			.tooltip(Tooltip.of(Text.literal("Lyrics appear 50ms later")))
 			.build());
 
-		// row 4: scroll speed for long titles
+		// row 4: sliders (art size, wave strength, title scroll speed)
 		int r4 = top + 96;
-		addDrawableChild(new Slider(left, r4, totalW, "Long title scroll speed", 0, 20, cfg.scrollSpeed, v -> cfg.scrollSpeed = (int) Math.round(v), v -> Math.round(v) == 0 ? "OFF" : Math.round(v) + " chars/sec"));
+		addDrawableChild(new Slider(left, r4, colW, "Art size", 24, 64, cfg.artSize, v -> cfg.artSize = (int) Math.round(v), v -> Math.round(v) + "px"));
+		addDrawableChild(new Slider(left + colW + gap, r4, colW, "Wave", 0, 6, cfg.waveStrength, v -> cfg.waveStrength = (int) Math.round(v), v -> Math.round(v) == 0 ? "OFF" : Math.round(v) + "px"));
+		addDrawableChild(new Slider(left + (colW + gap) * 2, r4, colW, "Title scroll", 0, 20, cfg.scrollSpeed, v -> cfg.scrollSpeed = (int) Math.round(v), v -> Math.round(v) == 0 ? "OFF" : Math.round(v) + "/s"));
+
+		// row 5: album art + wave toggles
+		int r5 = top + 120;
+		addDrawableChild(toggle(left, r5, colW, "Album art", () -> cfg.showArt, v -> cfg.showArt = v));
+		addDrawableChild(ButtonWidget.builder(Text.literal("Art side: " + (cfg.artRight ? "Right" : "Left")), b -> {
+			cfg.artRight = !cfg.artRight;
+			b.setMessage(Text.literal("Art side: " + (cfg.artRight ? "Right" : "Left")));
+		}).dimensions(left + colW + gap, r5, colW, 20).build());
+		addDrawableChild(toggle(left + (colW + gap) * 2, r5, colW, "Lyric wave", () -> cfg.waveEnabled, v -> cfg.waveEnabled = v));
 
 		// top bar
 		addDrawableChild(toggle(4, 4, 100, "HUD", () -> cfg.enabled, v -> cfg.enabled = v));

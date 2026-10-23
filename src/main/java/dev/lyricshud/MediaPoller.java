@@ -21,6 +21,7 @@ public final class MediaPoller {
 
 	// ASCII only on purpose: Windows PowerShell 5.1 reads BOM-less files as ANSI.
 	private static final String WINDOWS_SCRIPT = """
+		param([string]$ArtPath)
 		[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 		Add-Type -AssemblyName System.Runtime.WindowsRuntime
 		$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
@@ -32,6 +33,13 @@ public final class MediaPoller {
 		[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]
 		[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType=WindowsRuntime]
 		$mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+		[void][Windows.Storage.Streams.RandomAccessStreamReference, Windows.Storage.Streams, ContentType=WindowsRuntime]
+		[void][Windows.Storage.Streams.IRandomAccessStreamWithContentType, Windows.Storage.Streams, ContentType=WindowsRuntime]
+		$lastKey = ''
+		$artToken = ''
+		$artGen = 0
+		$artDone = $true
+		$artTries = 0
 		while ($true) {
 		  $line = 'NONE'
 		  try {
@@ -49,7 +57,24 @@ public final class MediaPoller {
 		      if ($dur -gt 0 -and $pos -gt $dur) { $pos = $dur }
 		      $title = "$($p.Title)".Replace('|', ' ')
 		      $artist = "$($p.Artist)".Replace('|', ' ')
-		      $line = "$status|||$([int64]($pos * 1000))|||$([int64]($dur * 1000))|||$title|||$artist"
+		      $key = "$title|$artist"
+		      if ($key -ne $lastKey) { $lastKey = $key; $artToken = ''; $artDone = $false; $artTries = 0 }
+		      if (-not $artDone -and $artTries -lt 16) {
+		        $artTries++
+		        try {
+		          $ref = $p.Thumbnail
+		          if ($ref) {
+		            $st = Await ($ref.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+		            $net = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($st)
+		            $fs = [System.IO.File]::Create($ArtPath)
+		            $net.CopyTo($fs)
+		            $fs.Close()
+		            $net.Close()
+		            if ((Get-Item $ArtPath).Length -gt 0) { $artGen++; $artToken = "$artGen"; $artDone = $true }
+		          }
+		        } catch { }
+		      }
+		      $line = "$status|||$([int64]($pos * 1000))|||$([int64]($dur * 1000))|||$title|||$artist|||$artToken"
 		    }
 		  } catch { $line = 'NONE' }
 		  [Console]::Out.WriteLine($line)
@@ -75,7 +100,8 @@ public final class MediaPoller {
 				Path script = configDir.resolve("lyricshud-media.ps1");
 				Files.writeString(script, WINDOWS_SCRIPT, StandardCharsets.US_ASCII);
 				cmd = List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-					"-ExecutionPolicy", "Bypass", "-File", script.toString());
+					"-ExecutionPolicy", "Bypass", "-File", script.toString(),
+					"-ArtPath", configDir.resolve("lyricshud-art.img").toString());
 			} catch (Exception e) {
 				LyricsHudClient.LOGGER.error("Couldn't write media helper script", e);
 				return;
@@ -83,7 +109,7 @@ public final class MediaPoller {
 		} else if (os.contains("linux")) {
 			String player = config.linuxPlayer == null ? "" : config.linuxPlayer.replaceAll("[^A-Za-z0-9._-]", "");
 			String p = player.isEmpty() ? "" : " -p " + player;
-			String fmt = "{{status}}" + SEP + "{{position}}" + SEP + "{{mpris:length}}" + SEP + "{{title}}" + SEP + "{{artist}}";
+			String fmt = "{{status}}" + SEP + "{{position}}" + SEP + "{{mpris:length}}" + SEP + "{{title}}" + SEP + "{{artist}}" + SEP + "{{mpris:artUrl}}";
 			cmd = List.of("sh", "-c", "while true; do playerctl" + p + " metadata --format '" + fmt + "' 2>/dev/null || echo NONE; sleep 0.25; done");
 		} else {
 			LyricsHudClient.LOGGER.warn("Lyrics HUD: media detection isn't implemented for '{}' (Windows and Linux only).", os);
@@ -139,6 +165,7 @@ public final class MediaPoller {
 				state.clear();
 				return;
 			}
+			if (f.length >= 6) state.setArtToken(f[5].trim());
 			state.update(playing, posMs, durMs, title, artist);
 		} catch (NumberFormatException ignored) {
 		}
