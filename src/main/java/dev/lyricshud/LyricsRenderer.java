@@ -54,10 +54,10 @@ public final class LyricsRenderer {
 		if (cfg.showHeader) {
 			rows.add(new Row(Text.literal(s.playing() ? "NOW PLAYING" : "PAUSED").asOrderedText(), argb(1f, DIM_TEXT), y));
 			y += LINE_H + 2;
-			rows.add(new Row(Text.literal(tr.trimToWidth(s.title(), innerW)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), y));
+			rows.add(new Row(Text.literal(marquee(tr, s.title(), innerW, true)).formatted(Formatting.BOLD).asOrderedText(), argb(1f, 0xFFFFFF), y));
 			y += LINE_H + 1;
 			if (!s.artist().isEmpty()) {
-				rows.add(new Row(Text.literal(tr.trimToWidth(s.artist(), innerW)).asOrderedText(), argb(1f, DIM_TEXT), y));
+				rows.add(new Row(Text.literal(marquee(tr, s.artist(), innerW, false)).asOrderedText(), argb(1f, DIM_TEXT), y));
 				y += LINE_H + 1;
 			}
 			barY = y + 2;
@@ -130,6 +130,36 @@ public final class LyricsRenderer {
 			y += LINE_H;
 		}
 		return y + GAP;
+	}
+
+	// ---- scrolling text for names that are too long ----
+	private static final long SCROLL_STEP_MS = 140;   // one character per step
+	private static final long SCROLL_PAUSE_MS = 1800; // rest at the start of each loop
+
+	private static int textWidth(TextRenderer tr, String s, boolean bold) {
+		return bold ? tr.getWidth(Text.literal(s).formatted(Formatting.BOLD)) : tr.getWidth(s);
+	}
+
+	/** Returns the text unchanged if it fits, otherwise a window of it that slides along over time. */
+	private static String marquee(TextRenderer tr, String text, int maxW, boolean bold) {
+		if (textWidth(tr, text, bold) <= maxW) return text;
+
+		String loop = text + "   -   ";
+		long cycleMs = loop.length() * SCROLL_STEP_MS;
+		long m = System.currentTimeMillis() % (cycleMs + SCROLL_PAUSE_MS);
+		int start = m < SCROLL_PAUSE_MS ? 0 : (int) ((m - SCROLL_PAUSE_MS) / SCROLL_STEP_MS) % loop.length();
+		if (start > 0 && Character.isLowSurrogate(loop.charAt(start))) start++;
+
+		String src = (loop + loop).substring(start);
+		StringBuilder out = new StringBuilder();
+		for (int i = 0; i < src.length(); i++) {
+			out.append(src.charAt(i));
+			if (textWidth(tr, out.toString(), bold) > maxW) {
+				out.setLength(out.length() - 1);
+				break;
+			}
+		}
+		return out.toString();
 	}
 
 	private static float fade(int dist) {
