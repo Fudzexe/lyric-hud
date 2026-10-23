@@ -62,7 +62,7 @@ public final class LyricsRenderer {
 		int barY = -1;
 
 		// ---- album art placement ----
-		boolean art = cfg.showHeader && cfg.showArt && !s.artToken().isEmpty();
+		boolean art = cfg.showHeader && cfg.showArt;
 		int artSize = cfg.artSize;
 		int artX = PAD;
 		int textX = PAD;
